@@ -14,11 +14,12 @@
 #include <cognitive_robotics/point_type.h>
 #include "utility.hpp"
 
-
+#include <visualization_msgs/Marker.h>
 
 
 ros::Publisher g_pub;
 ros::Publisher g_pub_median;
+ros::Publisher g_pub_cluster_marker;
 double threshold = 0.5;
 const int NUM_RINGS = 16;
 const int WINDOW_SIZE = 500;
@@ -28,12 +29,11 @@ double diodeAngle = 2;
 double epsilon = 0.05;
 int scan_nr = 0;
 int clusteringSize;
-std::vector<Point3d> clusterCenters;
-double clusterRadiusThreshold = 0.4; // the threshold of the difference from a new point to the previous max raddius cluster, used to determine if we should start a new cluster (a new obstacle appeared)
+std::vector<Point3d> g_clusterCenters;
+double clusterRadiusThreshold = 2; // the threshold of the difference from a new point to the previous max raddius cluster, used to determine if we should start a new cluster (a new obstacle appeared)
 double clusterVarianceThreshold = 5;
-std::vector<double> clusterRadiuses; // the maximum distance of any point in the cluster to its center
+std::vector<double> g_clusterRadiuses; // the maximum distance of any point in the cluster to its center
 std::map<uint16_t, double > g_medianFactorByRing;
-
 
 
  void clusterObstacles(const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > &currentClustering,  std::vector<Point3d>& centers) {
@@ -129,10 +129,9 @@ std::map<uint16_t, double > g_medianFactorByRing;
         mergedCluster.insert(mergedCluster.end(), currentClustering[minIndexj].begin(), currentClustering[minIndexj].end());
 	  
         //std::cout << "coutmergedCluster size:" << mergedCluster.size() <<  std::endl;
-        std::vector<velodyne_pointcloud::PointXYZIR>().swap(currentClustering[minIndexi]);
-        std::vector<velodyne_pointcloud::PointXYZIR>().swap(currentClustering[minIndexj]);
         currentClustering[minIndexi] = mergedCluster;
-	
+        currentClustering[minIndexj].erase(currentClustering[minIndexj].begin(),  currentClustering[minIndexj].end());
+        
         --numClusters;
         if(maxVariance > -1) {
 
@@ -161,9 +160,7 @@ std::map<uint16_t, double > g_medianFactorByRing;
     } while(maxVariance < clusterVarianceThreshold);
     std:: cout << "-----final cluster size" << numClusters << ", init size" << initClusterSize;
     // compute the cluster radiuses
-    computeClusterRadiuses(clusterRadiuses, centers, currentClustering);
-    
-   
+     
     //std::cout << "after merge: " << currentClustering.size() <<std::endl;
     for(int i = 0; i < initClusterSize; ++i) {
         delete [] clusterDistances[i];
@@ -178,11 +175,11 @@ std::map<uint16_t, double > g_medianFactorByRing;
     colorCluster(currentClustering);
     
     //std::cout<< "******end clustering size: "<< currentClustering[0].size() << std::endl;
-    std::cout << "time:" << timer.getTime() << std::endl;
+    ROS_INFO_STREAM("time:" << timer.getTime());
 }
 
-
- void clusterUsingExistingClustering(const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering,  std::vector<Point3d>& centers, std::vector<double>& clusterRadiuses) {
+// this function introduces a motion model into kmeans clustering
+ void clusterUsingExistingClustering(const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering,  std::vector<Point3d>& centers, std::vector<double>& radiuses) {
    pcl::StopWatch timer;
    std::vector<Point3d> newCenters;
    int *pointAssignments  = new int[obstacles.size()]; // the index of the cluster a point is assigned to
@@ -191,6 +188,7 @@ std::map<uint16_t, double > g_medianFactorByRing;
     for(int j =0; j<k; j++) {
       std::vector<velodyne_pointcloud::PointXYZIR> newVec;
 	clustering.push_back(newVec);
+	clusterSizes[j] = 0;
     }
     for(int i = 0; i < obstacles.size(); ++i) {
       double minDistance =  std::numeric_limits<double>::infinity();
@@ -202,6 +200,13 @@ std::map<uint16_t, double > g_medianFactorByRing;
 	  clusterNum = j;
 	}
       }
+      double distanceFromCenter = distance2Points(centers[clusterNum], obstacles[i]);
+     /* if(distanceFromCenter > radiuses[clusterNum]+clusterRadiusThreshold) { // probably a new obstacle appeared
+   	std::cout << "new obstacle appeared: " << distanceFromCenter - radiuses[clusterNum] << std::endl;
+      }*/
+      /*else {
+	std::cout << "NO!! new obstacle appeared" << std::endl;
+      }*/
       pointAssignments[i] = clusterNum;
       ++clusterSizes[clusterNum];
 
@@ -240,14 +245,14 @@ std::map<uint16_t, double > g_medianFactorByRing;
         updateExistingCentre(centers[clusterNum], newSize-1, obstacles[i]);
       }
     }
-    computeClusterRadiuses(clusterRadiuses, centers, pointAssignments, obstacles);
+    computeClusterRadiuses(radiuses, centers, pointAssignments, obstacles);
     ++kMeansIterNum;
   }
     while(changeOccured);
-    std::cout << "---number kmeans iterations " << kMeansIterNum;
+    ROS_INFO_STREAM("---number kmeans iterations " << kMeansIterNum);
     if(kMeansIterNum == 1) { // meanning the clustering assignment from before kmeans has changed
+      clustering.erase(clustering.begin(), clustering.end());
       for(int i =0; i<clustering.size(); i++) { // clear the outdated clustering
-	std::vector<velodyne_pointcloud::PointXYZIR>().swap(clustering[i]);
 	std::vector<velodyne_pointcloud::PointXYZIR> newVec;
 	clustering.push_back(newVec);
       }
@@ -259,7 +264,7 @@ std::map<uint16_t, double > g_medianFactorByRing;
     colorCluster(clustering);
  delete pointAssignments;
  delete clusterSizes;
- std::cout << "time:" << timer.getTime() << std::endl;
+ ROS_INFO_STREAM("time:" << timer.getTime());
  }
 
 void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud_)
@@ -290,6 +295,7 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
     }
 
     int order = 0;
+    // at first detect the obstacle points
     for (; iter != cloud.points.end(); iter++) {
         velodyne_pointcloud::PointXYZIR currentPoint = *iter;
         int currentIndex = currentPoint.ring;
@@ -332,19 +338,26 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
     }
     std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > clustering;
     if(scan_nr ==0) {
-      clusterObstacles(currentObstaclesList, clustering, clusterCenters);
+      // for the initial cluster we use heirarichal clustering, this gives an idea about what the number of cluster k should be
+      clusterObstacles(currentObstaclesList, clustering, g_clusterCenters);
       clusteringSize = clustering.size();
       // clean the cluster centres from ininity points
       std::vector<Point3d> tmpCenters;
+       std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > tmpClustering;
       tmpCenters.reserve(clustering.size());
-      for(int i =0; i<clusterCenters.size(); i++) {
-	if (clusterCenters[i].x <  std::numeric_limits<double>::infinity())
-	  tmpCenters.push_back(clusterCenters[i]);
+      for(int i =0; i<g_clusterCenters.size(); i++) {
+	if (g_clusterCenters[i].x <  std::numeric_limits<double>::infinity()) {
+	  tmpCenters.push_back(g_clusterCenters[i]);
+	  tmpClustering.push_back(clustering[i]);
+	}
       }
-      clusterCenters = tmpCenters;
+      g_clusterCenters = tmpCenters;
+      clustering = tmpClustering;
+      computeClusterRadiuses(g_clusterRadiuses, g_clusterCenters, clustering);
     }// use the previous data and clustering to determine the clustering of new scans with possibly not a very different clustering
     else {
-      clusterUsingExistingClustering(currentObstaclesList, clustering, clusterCenters, clusterRadiuses);
+      clustering.erase(clustering.begin(), clustering.end());
+      clusterUsingExistingClustering(currentObstaclesList, clustering, g_clusterCenters, g_clusterRadiuses);
     }
     
  
@@ -369,6 +382,9 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
     //g_pub_median.publish(flt_msg);
 
     g_pub.publish(modifiedCloud);
+
+    //publishClusterMarker(g_pub_cluster_marker, g_clusterCenters, g_clusterRadiuses);
+    
     scan_nr++;
 }
 
@@ -388,7 +404,7 @@ int main(int argc, char **argv)
 
     g_pub = n.advertise<pcl::PointCloud<velodyne_pointcloud::PointXYZIR> > ("output",1);
     g_pub_median = n.advertise<std_msgs::Float32> ("median",1);
-
+    g_pub_cluster_marker = n.advertise<visualization_msgs::Marker>( "cluster_marker", 0 );	
 // %EndTag(SUBSCRIBER)%
 
 // %Tag(SPIN)%

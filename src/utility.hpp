@@ -14,6 +14,7 @@
 #include <boost/circular_buffer.hpp>
 
 #include <cognitive_robotics/point_type.h>
+#include <visualization_msgs/Marker.h>
 
 struct Point3d {
   Point3d() : x(0), y(0), z(0){}
@@ -175,7 +176,7 @@ static double distanceBetweenClusters(const std::vector<velodyne_pointcloud::Poi
 }
 
 
-static int distance2Points(const Point3d point1, const velodyne_pointcloud::PointXYZIR point2){
+static double distance2Points(const Point3d point1, const velodyne_pointcloud::PointXYZIR point2){
   double distance = pow(point1.x-point2.x, 2) + pow(point1.y-point2.y, 2) + pow(point1.z-point2.z, 2);
   return sqrt(distance);
 }
@@ -209,13 +210,13 @@ static void colorCluster(std::vector<std::vector<velodyne_pointcloud::PointXYZIR
 }
 
 static void computeClusterRadiuses(std::vector <double>& clusterRadiuses, const std::vector <Point3d> clusterCenters, const std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > & currentClustering) {
-  for(int i =0; i< currentClustering.size(); i++) {
+  for(int i =0; i< clusterCenters.size(); i++) {
       double maxRadius = -1;
       for(int j=0; j<currentClustering[i].size(); j++) {
-      double currentRadius = distance2Points(clusterCenters[i], currentClustering[i][j]); 
-      if(currentRadius > maxRadius) {
-	maxRadius = currentRadius;
-       }
+	double currentRadius = distance2Points(clusterCenters[i], currentClustering[i][j]); 
+	if(currentRadius > maxRadius) {
+	  maxRadius = currentRadius;
+	}
       }
       clusterRadiuses.push_back(maxRadius);
    }
@@ -231,6 +232,45 @@ static void computeClusterRadiuses(std::vector <double>& clusterRadiuses, const 
     }
   }
 }
+
+
+
+static void publishClusterMarker(ros::Publisher publisher, const std::vector <Point3d> clusterCenters, std::vector <double>& clusterRadiuses){
+  assert(clusterCenters.size() == clusterRadiuses.size());
+  for (size_t i = 0; i < clusterCenters.size(); i++) {
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = "velodyne";
+    marker.header.stamp = ros::Time();
+    marker.ns = "cluster";
+    marker.id = i;
+    marker.type = visualization_msgs::Marker::SPHERE;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = clusterCenters[i].x;
+    marker.pose.position.y = clusterCenters[i].y;
+    marker.pose.position.z = clusterCenters[i].z;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = clusterRadiuses[i];
+    marker.scale.y = clusterRadiuses[i];
+    marker.scale.z = clusterRadiuses[i];
+    
+    ROS_INFO_STREAM("radius: " << clusterRadiuses[i]);
+    
+    float c, r, g, b;
+    c = (i+1)/float(255);
+    getRainbowColor(c,r,g,b);
+    marker.color.a = 1.0; // Don't forget to set the alpha!
+    marker.color.r = r;
+    marker.color.g = g;
+    marker.color.b = b;
+    
+    publisher.publish( marker );
+  }
+}
+
+
 
 /*static double distance_velodyne(const velodyne_pointcloud::PointXYZIR& point1, const velodyne_pointcloud::PointXYZIR& point2) {
     return  pcl::euclideanDistance<velodyne_pointcloud::PointXYZIR>(point1, point2);
