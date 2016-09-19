@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(cognitive_robotics)
-
+add_definitions(-std=c++11)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -129,7 +129,7 @@ include_directories(
 # add_dependencies(cognitive_robotics ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(PointCloudSubscriber src/PointCloudSubscriber.cpp)
+add_executable(PointCloudSubscriber src/PointCloudSubscriber.cpp src/utility.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
