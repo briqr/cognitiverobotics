@@ -208,6 +208,29 @@ static void colorCluster(std::vector<std::vector<velodyne_pointcloud::PointXYZIR
     }
 }
 
+static void computeClusterRadiuses(std::vector <double>& clusterRadiuses, const std::vector <Point3d> clusterCenters, const std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > & currentClustering) {
+  for(int i =0; i< currentClustering.size(); i++) {
+      double maxRadius = -1;
+      for(int j=0; j<currentClustering[i].size(); j++) {
+      double currentRadius = distance2Points(clusterCenters[i], currentClustering[i][j]); 
+      if(currentRadius > maxRadius) {
+	maxRadius = currentRadius;
+       }
+      }
+      clusterRadiuses.push_back(maxRadius);
+   }
+}
+
+
+static void computeClusterRadiuses(std::vector <double>& clusterRadiuses, const std::vector <Point3d> clusterCenters, const int *pointAssignments, const std::vector<velodyne_pointcloud::PointXYZIR> obstacles) {
+  for(int i =0; i< obstacles.size(); i++) {
+    int assignment = pointAssignments[i];
+    double currentRadius = distance2Points(clusterCenters[assignment], obstacles[i]); 
+    if(clusterRadiuses[assignment] < currentRadius) {
+      clusterRadiuses[assignment] = currentRadius;
+    }
+  }
+}
 
 /*static double distance_velodyne(const velodyne_pointcloud::PointXYZIR& point1, const velodyne_pointcloud::PointXYZIR& point2) {
     return  pcl::euclideanDistance<velodyne_pointcloud::PointXYZIR>(point1, point2);
