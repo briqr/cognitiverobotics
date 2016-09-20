@@ -20,12 +20,12 @@
 ros::Publisher g_pub;
 ros::Publisher g_pub_median;
 ros::Publisher g_pub_cluster_marker;
-const int NUM_RINGS = 16;
-const int WINDOW_SIZE = 500;
 std::vector <std::map<uint16_t,std::vector <std::vector<velodyne_pointcloud::PointXYZIR > > > > obstaclesList;
 // the angle between 2 consecutive laser diodes
+const int NUM_RINGS = 16;
+const int WINDOW_SIZE = 500;
 double diodeAngle = 2;
-double epsilon = 0.5;
+double epsilon = 0.05;
 int scan_nr = 0;
 int clusteringSize;
 std::vector<std::pair<Point3d, double>> g_clusters;
@@ -34,6 +34,56 @@ double clusterVarianceThreshold = 5;
 // std::vector<double> g_clusterRadiuses; // the maximum distance of any point in the cluster to its center
 std::map<uint16_t, double > g_medianFactorByRing;
 size_t g_lastMarkerCount = 0;
+
+void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, std::vector<velodyne_pointcloud::PointXYZIR>& currentObstaclesList, std::map<uint16_t, double> &medianFactorByRing, pcl::PointCloud<velodyne_pointcloud::PointXYZIR> &modifiedCloud, std::map<uint16_t, std::vector<double > > &distanceByPrevious) {
+  int order = 0;
+      // a map between a ring and the last point seen so far
+  std::map<uint16_t,  velodyne_pointcloud::PointXYZIR> ringPointMap;
+
+  std::vector< velodyne_pointcloud::PointXYZIR, Eigen::aligned_allocator <velodyne_pointcloud::PointXYZIR> > ::iterator iter = cloud.points.begin();
+
+    // at first detect the obstacle points
+  for (; iter != cloud.points.end(); iter++) {
+        velodyne_pointcloud::PointXYZIR currentPoint = *iter;
+        int currentIndex = currentPoint.ring;
+        int previousIndex = currentIndex+1;
+        if (currentIndex == NUM_RINGS-1)
+            previousIndex = NUM_RINGS-2;
+
+        if(ringPointMap.count(previousIndex) > 0 ) {
+            velodyne_pointcloud::PointXYZIR prevPoint = ringPointMap[previousIndex];
+
+            double currentTrueNorm = currentPoint.getVector4fMap().norm();
+            double prevNorm = prevPoint.getVector4fMap().norm();
+            double distanceFromPrevious = prevNorm-currentTrueNorm;
+            double scaleFactor = prevNorm;//pow(prevNorm, 2);
+            double expected_dist = g_medianFactorByRing[currentIndex]*scaleFactor;
+            double difference = distanceFromPrevious - expected_dist;
+            currentPoint.expected_dist = expected_dist;
+            currentPoint.difference = difference;
+            currentPoint.true_distance = currentTrueNorm;
+            if(currentIndex == NUM_RINGS-1){
+                difference*=-1;
+            }
+            if (difference>epsilon) { // this is an obstacle;
+                currentPoint.obstacle = 10000.f;
+                currentObstaclesList.push_back(currentPoint);
+            }
+            else {
+		modifiedCloud.push_back(currentPoint);
+	    }
+	      
+
+            distanceByPrevious[currentIndex].push_back(distanceFromPrevious/scaleFactor);
+        }
+        ringPointMap[currentIndex] = currentPoint;
+        if (currentPoint.ring == 15)
+        {
+            currentPoint.order = order++;
+        }
+    }
+}
+
 
  void clusterObstacles(const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > &currentClustering,  std::vector<std::pair<Point3d,double>>& centers) {
     pcl::StopWatch timer;
@@ -280,72 +330,19 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
     pcl::PointCloud<velodyne_pointcloud::PointXYZIR> cloud = cloud_;
     pcl::PointCloud<velodyne_pointcloud::PointXYZIR> modifiedCloud;
     modifiedCloud.header = cloud_.header;
+    std::map<uint16_t, std::vector<double > > distanceByPrevious;
 
     // the list of obstacles in this call back
     std::vector<velodyne_pointcloud::PointXYZIR> currentObstaclesList;
 
-
-    // a map between a ring and the last point seen so far
-    std::map<uint16_t,  velodyne_pointcloud::PointXYZIR> ringPointMap;
-
-    std::vector< velodyne_pointcloud::PointXYZIR, Eigen::aligned_allocator <velodyne_pointcloud::PointXYZIR> > ::iterator iter = cloud.points.begin();
-
-    std::map<uint16_t, std::vector<double > > distanceByPrevious;
-
-
     if(scan_nr==0)
     {
-        for(int i =0; i < NUM_RINGS; i++)
-        {
+        for(int i =0; i < NUM_RINGS; i++){
             g_medianFactorByRing[i] = 0;
         }
     }
-
-    int order = 0;
-    // at first detect the obstacle points
-    for (; iter != cloud.points.end(); iter++) {
-        velodyne_pointcloud::PointXYZIR currentPoint = *iter;
-        int currentIndex = currentPoint.ring;
-        int previousIndex = currentIndex-1;
-        if (currentIndex == NUM_RINGS-1)
-            previousIndex = NUM_RINGS-2;
-
-	if (currentIndex == 0)
-           previousIndex = 1;
-
-	
-        if(ringPointMap.count(previousIndex) > 0 ) {
-            velodyne_pointcloud::PointXYZIR prevPoint = ringPointMap[previousIndex];
-
-            double currentTrueNorm = currentPoint.getVector4fMap().norm();
-            double prevNorm = prevPoint.getVector4fMap().norm();
-            double distanceFromPrevious = prevNorm-currentTrueNorm;
-            double scaleFactor = prevNorm;//pow(prevNorm, 2);
-            double expected_dist = g_medianFactorByRing[currentIndex]*scaleFactor;
-            double difference = expected_dist - distanceFromPrevious ;
-            currentPoint.expected_dist = expected_dist;
-            currentPoint.difference = difference;
-            currentPoint.true_distance = currentTrueNorm;
-            if(currentIndex == NUM_RINGS-1){
-                difference*=-1;
-            }
-            if (difference>epsilon) { // this is an obstacle;
-                currentPoint.obstacle = 10000.f;
-                currentObstaclesList.push_back(currentPoint);
-            }
-            else {
-		modifiedCloud.push_back(currentPoint);
-	    }
-	      
-
-            distanceByPrevious[currentIndex].push_back(distanceFromPrevious/scaleFactor);
-        }
-        ringPointMap[currentIndex] = currentPoint;
-        if (currentPoint.ring == 15)
-        {
-            currentPoint.order = order++;
-        }
-    }
+    detectObstacles(cloud, currentObstaclesList, g_medianFactorByRing, modifiedCloud, distanceByPrevious);
+    
     std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > clustering;
     if( scan_nr ==0|| scan_nr ==1) {
       // for the initial cluster we use heirarichal clustering, this gives an idea about what the number of cluster k should be
@@ -363,13 +360,11 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
         }
     }
 
-    for (  std::map<uint16_t, std::vector<double > >::iterator iter = distanceByPrevious.begin(); iter != distanceByPrevious.end() ; ++iter)
-    {
+    for (std::map<uint16_t, std::vector<double > >::iterator iter = distanceByPrevious.begin(); iter != distanceByPrevious.end() ; ++iter){
         int ring = (*iter).first;
         std::vector<double>& vec = (*iter).second;
         std::nth_element(vec.begin(), vec.begin()+(vec.size()/2), vec.end() );
         g_medianFactorByRing[ring] = vec[vec.size()/2];
-
     }
 
     //std_msgs::Float32 flt_msg;
@@ -395,7 +390,7 @@ int main(int argc, char **argv)
 
 
 // %Tag(SUBSCRIBER)%
-    ros::Subscriber sub = n.subscribe("velodyne_points", 1, interRingSubscriberCallback); // topic name: velodyne_points
+    ros::Subscriber sub = n.subscribe("velodyne_points", 10, interRingSubscriberCallback); // topic name: velodyne_points
 
     g_pub = n.advertise<pcl::PointCloud<velodyne_pointcloud::PointXYZIR> > ("output",1);
     g_pub_median = n.advertise<std_msgs::Float32> ("median",1);

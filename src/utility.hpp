@@ -16,6 +16,7 @@
 #include <cognitive_robotics/point_type.h>
 #include <visualization_msgs/Marker.h>
 
+
 struct Point3d {
   Point3d() : x(0), y(0), z(0){}
   Point3d(double x_, double y_, double z_) : x(x_), y(y_), z(z_){}
@@ -243,7 +244,6 @@ static void cleanClusters(std::vector<std::vector<velodyne_pointcloud::PointXYZI
     if(clustering[i].size()>1) {
     tmpClustering.push_back(clustering[i]); 
     tmpCenters.push_back(centers[i]); 
-      
     }
    }
    clustering.swap(tmpClustering);
@@ -298,6 +298,8 @@ static void publishClusterMarker(ros::Publisher publisher, const std::vector <st
   last_marker_count = clusterCenters.size();
 
 }
+
+
 
 
 
