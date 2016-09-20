@@ -203,7 +203,7 @@ static void colorCluster(std::vector<std::vector<velodyne_pointcloud::PointXYZIR
             (currentClustering[i])[j].b = b*255;
         }
         ++clusterId;
-	random_number = generateRand(1, 1000);
+// 	random_number = generateRand(1, 1000);
     }
 }
 // first time computation of the cluster radiuses

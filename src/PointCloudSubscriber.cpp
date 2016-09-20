@@ -25,7 +25,7 @@ const int WINDOW_SIZE = 500;
 std::vector <std::map<uint16_t,std::vector <std::vector<velodyne_pointcloud::PointXYZIR > > > > obstaclesList;
 // the angle between 2 consecutive laser diodes
 double diodeAngle = 2;
-double epsilon = 0.05;
+double epsilon = 0.5;
 int scan_nr = 0;
 int clusteringSize;
 std::vector<std::pair<Point3d, double>> g_clusters;
@@ -306,10 +306,14 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
     for (; iter != cloud.points.end(); iter++) {
         velodyne_pointcloud::PointXYZIR currentPoint = *iter;
         int currentIndex = currentPoint.ring;
-        int previousIndex = currentIndex+1;
+        int previousIndex = currentIndex-1;
         if (currentIndex == NUM_RINGS-1)
             previousIndex = NUM_RINGS-2;
 
+	if (currentIndex == 0)
+           previousIndex = 1;
+
+	
         if(ringPointMap.count(previousIndex) > 0 ) {
             velodyne_pointcloud::PointXYZIR prevPoint = ringPointMap[previousIndex];
 
@@ -318,7 +322,7 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
             double distanceFromPrevious = prevNorm-currentTrueNorm;
             double scaleFactor = prevNorm;//pow(prevNorm, 2);
             double expected_dist = g_medianFactorByRing[currentIndex]*scaleFactor;
-            double difference = distanceFromPrevious - expected_dist;
+            double difference = expected_dist - distanceFromPrevious ;
             currentPoint.expected_dist = expected_dist;
             currentPoint.difference = difference;
             currentPoint.true_distance = currentTrueNorm;
