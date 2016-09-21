@@ -25,7 +25,7 @@ std::vector <std::map<uint16_t,std::vector <std::vector<velodyne_pointcloud::Poi
 const int NUM_RINGS = 16;
 const int WINDOW_SIZE = 500;
 double diodeAngle = 2;
-double epsilon = 0.05;
+double epsilon = 0.15;
 int scan_nr = 0;
 int clusteringSize;
 std::vector<std::pair<Point3d, double>> g_clusters;
@@ -46,33 +46,48 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
   for (; iter != cloud.points.end(); iter++) {
         velodyne_pointcloud::PointXYZIR currentPoint = *iter;
         int currentIndex = currentPoint.ring;
-        int previousIndex = currentIndex+1;
-        if (currentIndex == NUM_RINGS-1)
-            previousIndex = NUM_RINGS-2;
+        int previousIndex = currentIndex-1;
+        if (currentIndex == 0)
+            previousIndex = 1;
 
+	
+	  
         if(ringPointMap.count(previousIndex) > 0 ) {
             velodyne_pointcloud::PointXYZIR prevPoint = ringPointMap[previousIndex];
-
-            double currentTrueNorm = currentPoint.getVector4fMap().norm();
             double prevNorm = prevPoint.getVector4fMap().norm();
+
+	    
+// 	    int ring_angle = 75+previousIndex*2;
+// 	    float angle_to_next = (180-90-ring_angle)*M_PI/180;
+// 	    float expected_dist = prevPoint.getVector4fMap().norm() / sin(M_PI-(M_PI-angle_to_next)-(2*M_PI/180)) * sin(M_PI-angle_to_next);
+	
+	    
+	    float height = 0.95f;
+	    float delta_angle = (2*M_PI/180);
+	    float r_delta = height / sin( asin ( height / prevNorm ) - delta_angle ) - prevNorm;
+	    
+	    float expected_dist = prevNorm + r_delta;
+	    
+            double currentTrueNorm = currentPoint.getVector4fMap().norm();
             double distanceFromPrevious = prevNorm-currentTrueNorm;
             double scaleFactor = prevNorm;//pow(prevNorm, 2);
-            double expected_dist = g_medianFactorByRing[currentIndex]*scaleFactor;
-            double difference = distanceFromPrevious - expected_dist;
+//             double expected_dist = g_medianFactorByRing[currentIndex]*scaleFactor;
+//             double difference = distanceFromPrevious - expected_dist;
+            double difference = (expected_dist - currentTrueNorm) / (prevNorm*prevNorm) ;
             currentPoint.expected_dist = expected_dist;
-            currentPoint.difference = difference;
+            currentPoint.difference = difference ;
             currentPoint.true_distance = currentTrueNorm;
-            if(currentIndex == NUM_RINGS-1){
+            if(currentIndex == 0){
                 difference*=-1;
             }
-            if (difference>epsilon) { // this is an obstacle;
+            if ( difference>0.008) { // this is an obstacle;
                 currentPoint.obstacle = 10000.f;
                 currentObstaclesList.push_back(currentPoint);
-            }
-            else {
-		modifiedCloud.push_back(currentPoint);
+//             }
+//             else {
+		
 	    }
-	      
+	      modifiedCloud.push_back(currentPoint);
 
             distanceByPrevious[currentIndex].push_back(distanceFromPrevious/scaleFactor);
         }
@@ -344,7 +359,7 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
     detectObstacles(cloud, currentObstaclesList, g_medianFactorByRing, modifiedCloud, distanceByPrevious);
     
     std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > clustering;
-    if( scan_nr ==0|| scan_nr ==1) {
+    if( true || scan_nr ==0|| scan_nr ==1) {
       // for the initial cluster we use heirarichal clustering, this gives an idea about what the number of cluster k should be
       clusterObstacles(currentObstaclesList, clustering, g_clusters );
     }
