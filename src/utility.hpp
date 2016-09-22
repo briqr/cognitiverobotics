@@ -25,6 +25,29 @@ struct Point3d {
 	double z;
 };
 
+
+struct ClusterDescriptor{
+  ClusterDescriptor() :  ClusterDescriptor(Point3d(), 0.0 ){};
+
+  ClusterDescriptor(Point3d _center, double _radius) : center(_center), radius(_radius)
+  {
+    id = last_id++;
+
+    
+  };
+  
+  int id;
+  Point3d center;
+  double radius;
+  
+  static int last_id;
+
+};
+
+
+typedef std::vector <ClusterDescriptor> ClusterDescriptorVector;
+
+
 struct Variance {
  Point3d mean; // the cluster estimated mean per dimension
  Point3d S; // sum of squares of the difference between the value and the mean per dimension
@@ -85,6 +108,15 @@ public:
 	
 };
 
+
+static unsigned int hashColor( unsigned int hash_cluster_id )
+{
+  hash_cluster_id = ((hash_cluster_id >> 16) ^ hash_cluster_id) * 0x45d9f3b;
+  hash_cluster_id = ((hash_cluster_id >> 16) ^ hash_cluster_id) * 0x45d9f3b;
+  hash_cluster_id = (hash_cluster_id >> 16) ^ hash_cluster_id;
+    
+  return hash_cluster_id;
+}
 
  static void getRainbowColor(float value, float& r, float& g, float& b)
 {
@@ -157,9 +189,9 @@ static double updateCentre(Point3d& initialCentre, int initialSize, const std::v
     newCentre.y+=clusterj[i].y;
     newCentre.z+=clusterj[i].z;
   }
-   newCentre.x/=clusterj.size()+initialSize;
-   newCentre.y/=clusterj.size()+initialSize;
-   newCentre.z/=clusterj.size()+initialSize;
+   newCentre.x/=(clusterj.size()+initialSize);
+   newCentre.y/=(clusterj.size()+initialSize);
+   newCentre.z/=(clusterj.size()+initialSize);
    initialCentre = newCentre;
 }
 static double distanceBetweenClusters(const std::vector<velodyne_pointcloud::PointXYZIR>& clusteri, const std::vector<velodyne_pointcloud::PointXYZIR>& clusterj) {
@@ -188,16 +220,19 @@ static int generateRand(int min, int max){
   return rndVal;
 }
 
-static void colorCluster(std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > &currentClustering) {
+static void colorCluster(std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > &currentClustering, const ClusterDescriptorVector& clusterCenters) {
   int clusterId = 1;
   //int random_number = generateRand(1, 1000);
   for(int i =0; i<currentClustering.size(); i++) {
+        unsigned int hash_cluster_id = hashColor(clusterCenters[i].id);
+
         float c, r, g, b;
-        c = clusterId/float(255);
+	c = (hash_cluster_id)/float(std::numeric_limits<int>::max());
+
         //ROS_INFO_STREAM( "clusterid: " << clusterId << " " << c );
         getRainbowColor(c,r,g,b);
         for(int j=0; j<currentClustering[i].size(); j++) {
-            (currentClustering[i])[j].cluster_id = clusterId;
+            (currentClustering[i])[j].cluster_id = clusterCenters[i].id;
             //uint32_t rgb = ((uint32_t)22 << 16 | (uint32_t)clusterId << 8 | (uint32_t)10);
             (currentClustering[i])[j].r = r*255;
             (currentClustering[i])[j].g = g*255;
@@ -208,38 +243,49 @@ static void colorCluster(std::vector<std::vector<velodyne_pointcloud::PointXYZIR
     }
 }
 // first time computation of the cluster radiuses
-static void computeClusterRadiuses(std::vector <std::pair<Point3d,double>>& clusterCenters, const std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > & currentClustering) {
+static void computeClusterRadiuses(ClusterDescriptorVector& clusterCenters, const std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > & currentClustering) {
   for(int i =0; i< clusterCenters.size(); i++) {
       double maxRadius = -1;
       for(int j=0; j<currentClustering[i].size(); j++) {
-	double currentRadius = distance2Points(clusterCenters[i].first, currentClustering[i][j]); 
+	double currentRadius = distance2Points(clusterCenters[i].center, currentClustering[i][j]); 
 	if(currentRadius > maxRadius) {
 	  maxRadius = currentRadius;
 	}
       }
-      clusterCenters[i].second = maxRadius;
+      clusterCenters[i].radius = maxRadius;
    }
 }
 
 //update the cluster radiuses dueing the kmean iterations
-static void updateClusterRadiuses(std::vector <std::pair<Point3d,double>>& clusterCenters, const int *pointAssignments, const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles) {
-
-
+static void updateClusterCentersRadiuses(ClusterDescriptorVector& clusterCenters, const int *pointAssignments, const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles) {
+   int *clusterSizes  = new int[clusterCenters.size()]; 
+  int i = 0;
   for(auto& e : clusterCenters ){
-    e.second = 0.0;
+     Point3d newCentre;
+     e.center = newCentre;
+    e.radius = 0.0;
+    clusterSizes[i++] = 0;
   }
-  for(int i =0; i< obstacles.size(); i++) {
+  // first update the centers
+  for(i =0; i< obstacles.size(); i++) {
+   int assignment = pointAssignments[i];
+   updateExistingCentre(clusterCenters[assignment].center, clusterSizes[assignment], obstacles[i]);
+   ++clusterSizes[assignment];
+  }
+  // now update the radiuses
+  for(i =0; i< obstacles.size(); i++) {
     int assignment = pointAssignments[i];
-    double currentRadius = distance2Points(clusterCenters[assignment].first, obstacles[i]); 
-    if(clusterCenters[assignment].second < currentRadius) {
-      clusterCenters[assignment].second = currentRadius;
+    double currentRadius = distance2Points(clusterCenters[assignment].center, obstacles[i]); 
+    if(clusterCenters[assignment].radius < currentRadius) {
+      clusterCenters[assignment].radius = currentRadius;
     }
   }
+  delete clusterSizes;
 }
 
-static void cleanClusters(std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering, std::vector<std::pair<Point3d, double>>& centers) {
+static void cleanClusters(std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering, ClusterDescriptorVector& centers) {
   std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > tmpClustering;
-  std::vector<std::pair<Point3d,double>>  tmpCenters;
+  ClusterDescriptorVector  tmpCenters;
   for(int i =0; i<clustering.size(); i++) {
     if(clustering[i].size()>1) {
     tmpClustering.push_back(clustering[i]); 
@@ -250,12 +296,12 @@ static void cleanClusters(std::vector<std::vector<velodyne_pointcloud::PointXYZI
    centers.swap(tmpCenters);
 }
 
-static void publishClusterMarker(ros::Publisher publisher, const std::vector <std::pair<Point3d,double>> clusterCenters, size_t& last_marker_count ){
+static void publishClusterMarker(ros::Publisher publisher, const ClusterDescriptorVector clusterCenters, size_t& last_marker_count, ros::Time stamp ){
   
   for (size_t i = 0; i < last_marker_count; i++) {
     visualization_msgs::Marker marker;
     marker.header.frame_id = "velodyne";
-    marker.header.stamp = ros::Time();
+    marker.header.stamp = stamp;
     marker.ns = "cluster";
     marker.id = i;
     marker.type = visualization_msgs::Marker::SPHERE;
@@ -267,26 +313,28 @@ static void publishClusterMarker(ros::Publisher publisher, const std::vector <st
   for (size_t i = 0; i < clusterCenters.size(); i++) {
     visualization_msgs::Marker marker;
     marker.header.frame_id = "velodyne";
-    marker.header.stamp = ros::Time();
+    marker.header.stamp = stamp;
     marker.ns = "cluster";
     marker.id = i;
     marker.type = visualization_msgs::Marker::SPHERE;
     marker.action = visualization_msgs::Marker::ADD;
-    marker.pose.position.x = clusterCenters[i].first.x;
-    marker.pose.position.y = clusterCenters[i].first.y;
-    marker.pose.position.z = clusterCenters[i].first.z;
+    marker.pose.position.x = clusterCenters[i].center.x;
+    marker.pose.position.y = clusterCenters[i].center.y;
+    marker.pose.position.z = clusterCenters[i].center.z;
     marker.pose.orientation.x = 0.0;
     marker.pose.orientation.y = 0.0;
     marker.pose.orientation.z = 0.0;
     marker.pose.orientation.w = 1.0;
-    marker.scale.x = clusterCenters[i].second;
-    marker.scale.y = clusterCenters[i].second;
-    marker.scale.z = clusterCenters[i].second;
+    marker.scale.x = clusterCenters[i].radius;
+    marker.scale.y = clusterCenters[i].radius;
+    marker.scale.z = clusterCenters[i].radius;
     
     //ROS_INFO_STREAM("radius: " << clusterRadiuses[i]);
     
+    unsigned int hash_cluster_id = hashColor(clusterCenters[i].id);
+      
     float c, r, g, b;
-    c = (i+1)/float(255);
+    c = (hash_cluster_id)/float(std::numeric_limits<int>::max());
     getRainbowColor(c,r,g,b);
     marker.color.a = 0.25; // Don't forget to set the alpha!
     marker.color.r = r;
@@ -299,7 +347,19 @@ static void publishClusterMarker(ros::Publisher publisher, const std::vector <st
 
 }
 
-
+// calculate an averaged radius from the previous scan and the current scan
+static double calcAveragedRadius(const double prevRadius, const Point3d center, const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, const std::vector<int> clusterIndices) {
+  double alpha = 0.1;
+  double detectedRadius = -1;
+   for(int i =0; i< clusterIndices.size(); i++) {
+	double currentRadius = distance2Points(center, obstacles[i]); 
+	if(currentRadius > detectedRadius) {
+	  detectedRadius = currentRadius;
+	}
+      }
+      double newRadius = alpha*detectedRadius+(1-alpha)*prevRadius;
+  }
+  
 
 
 

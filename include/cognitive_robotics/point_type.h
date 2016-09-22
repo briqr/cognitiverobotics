@@ -35,7 +35,7 @@ namespace velodyne_pointcloud
     float expected_dist;                      ///< laser ring number
     float obstacle;                      ///< laser ring number
     uint16_t order;                      ///< laser ring number
-    int cluster_id;
+    int cluster_id; 
     PCL_ADD_RGB
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW     // ensure proper alignment
   } EIGEN_ALIGN16;
@@ -57,7 +57,6 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(velodyne_pointcloud::PointXYZIR,
 				  (uint16_t, order , order)
 				  (int, cluster_id, cluster_id)
 				  (uint32_t, rgb, rgb)
-
 )
 
 #endif // __VELODYNE_POINTCLOUD_POINT_TYPES_H

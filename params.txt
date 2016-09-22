@@ -1,0 +1,2 @@
+clusterVarianceThreshold=0.5
+clusterRadiusThreshold=0.9
