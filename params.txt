@@ -1,2 +1,5 @@
-clusterVarianceThreshold=0.5
+clusterDistanceThresholdx=0.1
+clusterDistanceThresholdy=0.1
+clusterDistanceThresholdz=0.1
 clusterRadiusThreshold=0.9
+initClusterSize=5000

@@ -149,7 +149,18 @@ static unsigned int hashColor( unsigned int hash_cluster_id )
   b = color[2];
 }
 
-
+static void updateInternalDistance(std::vector<velodyne_pointcloud::PointXYZIR> cluster, double& internalDistance) {
+  int n = cluster.size();
+  // there are n(n-1)/2 pairs in the cluster
+  int scale = n*(n-1)/2;
+  internalDistance = 0;
+    for(int i =0; i<cluster.size(); i++) {
+      for(int j=i+1;j<cluster.size(); j++) {
+	internalDistance += pcl::euclideanDistance<velodyne_pointcloud::PointXYZIR>(cluster[i], cluster[j]);
+      }
+    }
+    internalDistance/=scale;
+}
 static double updateVariance(std::vector<velodyne_pointcloud::PointXYZIR> cluster1){
   int n = cluster1.size();
   Point3d mean;
