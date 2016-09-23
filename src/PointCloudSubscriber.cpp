@@ -36,6 +36,8 @@ double clusterVarianceThreshold;
 std::map<std::string, double> g_paramsMap; 
 std::map<uint16_t, double > g_medianFactorByRing;
 size_t g_lastMarkerCount = 0;
+pcl::PointCloud<velodyne_pointcloud::PointXYZIR> g_cloud ;
+
 
 int ClusterDescriptor::last_id = 0;
 
@@ -135,6 +137,8 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
     double* minDistanceValues = new double[initClusterSize];
     double* clusterInternalDistance = new double [initClusterSize];
     double** clusterDistances = new double*[initClusterSize];
+    Point3d* variances = new Point3d[initClusterSize]; // the varaince of the point of a cluster
+    
     for(int i = 0; i < initClusterSize; ++i) {
         clusterDistances[i] = new double[initClusterSize];
     }
@@ -194,7 +198,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 	  break;
 	}
 	// This condition checks whether we should merge these 2 clusters with the min distance based on the internal distance of clusteri and clusterj  
-	  if(fabs(lastMinDistance - clusterInternalDistance[minIndexi]) > g_paramsMap["clusterVarianceThreshold"]|| fabs(lastMinDistance - clusterInternalDistance[minIndexj]) > g_paramsMap["clusterVarianceThreshold"]) { // find the next nearest distance
+	  if(fabs(lastMinDistance - clusterInternalDistance[minIndexi]) > g_paramsMap["clusterDistanceThreshold"]|| fabs(lastMinDistance - clusterInternalDistance[minIndexj]) > g_paramsMap["clusterDistanceThreshold"] || clusterInternalDistance[minIndexi] > g_paramsMap["maxInternalDistance"] || clusterInternalDistance[minIndexj] > g_paramsMap["maxInternalDistance"] ) { // find the next nearest distance
 	    distanceExceeded = true;
 	    clusterDistances[minIndexi][minIndexj] = std::numeric_limits<double>::infinity(); // we don't want to consider these 2 clusters for merging anymore
 	    clusterDistances[minIndexj][minIndexi] = std::numeric_limits<double>::infinity();
@@ -255,7 +259,10 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
         currentClustering[minIndexi].swap(mergedCluster);
         currentClustering[minIndexj].erase(currentClustering[minIndexj].begin(),  currentClustering[minIndexj].end());
 
-        updateInternalDistance(currentClustering[minIndexi], clusterInternalDistance[minIndexi]);
+	updateVariance(currentClustering[minIndexi], variances[minIndexi]);
+	variances[minIndexj] = Point3d(std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
+	updateInternalDistance(currentClustering[minIndexi], clusterInternalDistance[minIndexi]);
+	  
         clusterInternalDistance[minIndexj] = std::numeric_limits<double>::infinity();
 	--numClusters;
        
@@ -272,12 +279,13 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
     delete [] minDistanceIndices;
     delete [] minDistanceValues;
     delete[] clusterInternalDistance;
+    delete [] variances;
     // assign id to clusters
     //std::cout<< "total num points: (" << initClusterSize <<"), ";
     
     cleanClusters(currentClustering, centers);
      
-    colorCluster(currentClustering, centers);
+    //colorCluster(currentClustering, centers);
     
     computeClusterRadiuses( centers, currentClustering);
     
@@ -288,6 +296,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 // this function introduces a motion model into kmeans clustering
  void clusterUsingExistingClustering(const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering,  ClusterDescriptorVector& centers ) {
    pcl::StopWatch timer;
+   std::vector<velodyne_pointcloud::PointXYZIR> unassingedObstacles;
    std::vector<Point3d> newCenters;
    int *pointAssignments  = new int[obstacles.size()]; // the index of the cluster a point is assigned to
    int k = centers.size();
@@ -305,7 +314,14 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 	    minDistance = currentDistance;
 	    clusterNum = j;
 	  }
-      }     
+      }
+        double distanceFromCenter = minDistance;
+      if(distanceFromCenter > centers[clusterNum].radius+g_paramsMap["clusterRadiusThreshold"]) { // probably a new obstacle appeared, start a new cluster for it
+	pointAssignments[i] = -1;
+	unassingedObstacles.push_back(obstacles[i]);
+	  continue;
+      }
+      
       int prevAssignment = pointAssignments[i];
       if(prevAssignment != clusterNum) {
 	changeOccured = true;
@@ -322,10 +338,18 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
     }
     for(int i=0; i< obstacles.size(); i++) {
       int clusterAssignment = pointAssignments[i];
+      if(clusterAssignment < 0)
+	continue;
       clustering[clusterAssignment].push_back(obstacles[i]);
     }
+    
     // remove empty clusters
-  
+  ClusterDescriptorVector newClustersCenters;
+  std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > newClustering;
+//   clusterObstacles(unassingedObstacles, newClustering, newClustersCenters);
+//   clustering.insert(clustering.end(), newClustering.begin(), newClustering.end());
+//   centers.insert(centers.end(), newClustersCenters.begin(),newClustersCenters.end());
+
   cleanClusters(clustering, centers);
   ROS_INFO_STREAM("---number kmeans iterations " << kMeansIterNum <<", number of clusters: " << clustering.size() << ", obstacles number: " << obstacles.size());
   if(clustering.size() < k)
@@ -338,7 +362,16 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud_)
 {
     ROS_INFO("interRingSubscriberCallback");
+//     if(scan_nr==0)
+//     {
+//       g_cloud = cloud_;
+//     }
+//     
+    ClusterDescriptor::last_id = 0;
+
+    
     pcl::PointCloud<velodyne_pointcloud::PointXYZIR> cloud = cloud_;
+//     pcl::PointCloud<velodyne_pointcloud::PointXYZIR> cloud = g_cloud;
     pcl::PointCloud<velodyne_pointcloud::PointXYZIR> modifiedCloud;
     modifiedCloud.header = cloud_.header;
     std::map<uint16_t, std::vector<double > > distanceByPrevious;
