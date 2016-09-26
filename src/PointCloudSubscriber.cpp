@@ -294,13 +294,17 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 }
 
 // this function introduces a motion model into kmeans clustering
- void clusterUsingExistingClustering(const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering,  ClusterDescriptorVector& centers ) {
+ void clusterUsingExistingClustering(const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering,  ClusterDescriptorVector& centers, const ros::Time& timeStamp ) {
    pcl::StopWatch timer;
    std::vector<velodyne_pointcloud::PointXYZIR> unassingedObstacles;
    std::vector<Point3d> newCenters;
    int *pointAssignments  = new int[obstacles.size()]; // the index of the cluster a point is assigned to
    int k = centers.size();
-  
+    
+   std::vector<bool> clusterHasAssignment;
+   
+   updateLastCenters(centers);
+   
     bool changeOccured = false; // indicates if a change in assignment occured
     int kMeansIterNum = 0;
     do{
@@ -321,14 +325,13 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 	unassingedObstacles.push_back(obstacles[i]);
 	  continue;
       }
-      
       int prevAssignment = pointAssignments[i];
       if(prevAssignment != clusterNum) {
 	changeOccured = true;
 	pointAssignments[i] = clusterNum;
       }
     }
-    updateClusterCentersRadiuses(centers, pointAssignments, obstacles);
+    updateClusterCentersRadiuses(centers, pointAssignments, obstacles, timeStamp, clusterHasAssignment);
     ++kMeansIterNum;
   }
     while(changeOccured);    
@@ -350,7 +353,11 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 //   clustering.insert(clustering.end(), newClustering.begin(), newClustering.end());
 //   centers.insert(centers.end(), newClustersCenters.begin(),newClustersCenters.end());
 
-  cleanClusters(clustering, centers);
+  updateTimeStamps(centers, timeStamp, clusterHasAssignment );
+  updateEmptyCenters(centers, timeStamp, clusterHasAssignment );
+
+  
+//   cleanClusters(clustering, centers);
   ROS_INFO_STREAM("---number kmeans iterations " << kMeansIterNum <<", number of clusters: " << clustering.size() << ", obstacles number: " << obstacles.size());
   if(clustering.size() < k)
   ROS_INFO_STREAM("******************Number of clusters reduced from: " << k <<" to: " << clustering.size());
@@ -394,7 +401,7 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
       clusterObstacles(currentObstaclesList, clustering, g_clusters );
     }
     else {// use the previous data and clustering to determine the clustering of new scans with possibly not a very different clustering
-      clusterUsingExistingClustering(currentObstaclesList, clustering, g_clusters );
+      clusterUsingExistingClustering(currentObstaclesList, clustering, g_clusters, pcl_conversions::fromPCL(cloud_.header.stamp) );
     }
     
  
