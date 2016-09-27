@@ -59,8 +59,9 @@ struct ClusterDescriptor{
 
   Point3d lastCenter;
 
-  ros::Time lastSeen;
-  ros::Time timeStampLastCenter;
+  ros::Time lastSeen; // The time stamp of the last occurence of the cluster (1 timestamp back). It gets updated regardless of whether cluster points appeared or not
+  ros::Time timeStampLastCenter; // The time stamp before last seen (2 timestamps back). It get u
+  ros::Time actualSeen; // this 
   
   
 };
@@ -368,7 +369,7 @@ static void updateLastCenters(ClusterDescriptorVector& clusterCenters ) {
   }
 }
 
-//update the centers of emptz clusters for obstacle points that were in the blind area
+//update the time stamps of for non empty clusters, and remove clusters that disappeared and did not reappear again for a long time
 static void updateTimeStamps(ClusterDescriptorVector& clusterCenters, const ros::Time& timeStamp, std::vector<bool>& clusterHasAssignment  ) {
   for(size_t i = 0; i < clusterCenters.size(); i++){
     if ( clusterHasAssignment[i] ) {
@@ -380,7 +381,7 @@ static void updateTimeStamps(ClusterDescriptorVector& clusterCenters, const ros:
       
   }
 }
-//update the centers of emptz clusters for obstacle points that were in the blind area
+//update the centers of empty clusters for obstacle points that were in the blind area
 static void updateEmptyCenters(ClusterDescriptorVector& clusterCenters, const ros::Time& timeStamp, std::vector<bool>& clusterHasAssignment  ) {
  
   for(size_t i = 0; i < clusterCenters.size(); i++){

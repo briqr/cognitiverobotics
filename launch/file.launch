@@ -1,6 +1,6 @@
 <launch>
 <!-- node pkg="rosbag" type="play" name="player" output="screen" args="-clock -r 0.25 /home/lbriq/bags/mbzirc_test1_2016-07-29-17-57-43.bag"/ -->-  
-  <node pkg="rosbag" type="play" name="player" output="screen" args="--clock -r 0.5 -s 36  /home/droeschel/bags/mbzirv_velodyne/Lab_velodyne_2016/2016-09-14-17-06-01.bag"/>
+  <node pkg="rosbag" type="play" name="player" output="screen" args="--clock -r 0.5 -s 36 /home/lbriq/bags/Lab_velodyne_2016/2016-09-14-17-06-01.bag"/>
   
   <node name="PointCloudReader" pkg="cognitive_robotics" type="PointCloudSubscriber" output="screen"/>
   <node name="rivz" pkg="rviz" type="rviz" />

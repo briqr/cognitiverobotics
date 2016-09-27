@@ -299,6 +299,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
    std::vector<velodyne_pointcloud::PointXYZIR> unassingedObstacles;
    std::vector<Point3d> newCenters;
    int *pointAssignments  = new int[obstacles.size()]; // the index of the cluster a point is assigned to
+   
    int k = centers.size();
     
    std::vector<bool> clusterHasAssignment;
@@ -322,7 +323,6 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
         double distanceFromCenter = minDistance;
       if(distanceFromCenter > centers[clusterNum].radius+g_paramsMap["clusterRadiusThreshold"]) { // probably a new obstacle appeared, start a new cluster for it
 	pointAssignments[i] = -1;
-	unassingedObstacles.push_back(obstacles[i]);
 	  continue;
       }
       int prevAssignment = pointAssignments[i];
@@ -345,13 +345,21 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 	continue;
       clustering[clusterAssignment].push_back(obstacles[i]);
     }
-    
     // remove empty clusters
-  ClusterDescriptorVector newClustersCenters;
   std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > newClustering;
-//   clusterObstacles(unassingedObstacles, newClustering, newClustersCenters);
-//   clustering.insert(clustering.end(), newClustering.begin(), newClustering.end());
-//   centers.insert(centers.end(), newClustersCenters.begin(),newClustersCenters.end());
+  for(int i = 0 ; i < obstacles.size(); i++) {
+    if(pointAssignments[i]==-1)  {
+      unassingedObstacles.push_back(obstacles[i]);
+    }
+  }
+  if(unassingedObstacles.size()> 0) {
+    ClusterDescriptorVector newClustersCenters;
+   ROS_INFO_STREAM("****---Creating clusters for emerging obstacles");
+   clusterObstacles(unassingedObstacles, newClustering, newClustersCenters);
+   ROS_INFO_STREAM("****--Done creating clusters for emerging obstacles");
+   clustering.insert(clustering.end(), newClustering.begin(), newClustering.end());
+   centers.insert(centers.end(), newClustersCenters.begin(),newClustersCenters.end());
+  }
 
   updateTimeStamps(centers, timeStamp, clusterHasAssignment );
   updateEmptyCenters(centers, timeStamp, clusterHasAssignment );
@@ -359,8 +367,8 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
   
 //   cleanClusters(clustering, centers);
   ROS_INFO_STREAM("---number kmeans iterations " << kMeansIterNum <<", number of clusters: " << clustering.size() << ", obstacles number: " << obstacles.size());
-  if(clustering.size() < k)
-  ROS_INFO_STREAM("******************Number of clusters reduced from: " << k <<" to: " << clustering.size());
+  /*if(clustering.size() < k)
+    ROS_INFO_STREAM("******************Number of clusters reduced from: " << k <<" to: " << clustering.size());*/
   colorCluster(clustering, centers);
   delete pointAssignments;
   ROS_INFO_STREAM("time:" << timer.getTime());
