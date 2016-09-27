@@ -311,7 +311,12 @@ static void computeClusterRadiuses(ClusterDescriptorVector& clusterCenters, cons
 //update the cluster radiuses dueing the kmean iterations
 static void updateClusterCentersRadiuses(ClusterDescriptorVector& clusterCenters, const int *pointAssignments, const std::vector<velodyne_pointcloud::PointXYZIR>& obstacles, const ros::Time& timeStamp, std::vector<bool>& clusterHasAssignment  ) {
   int *clusterSizes  = new int[clusterCenters.size()];
-
+  std::vector <double> oldRadius;
+  oldRadius.resize(clusterCenters.size());
+  
+  std::vector <double> currentRadius;
+  currentRadius.resize(clusterCenters.size());
+  
   clusterHasAssignment.resize(clusterCenters.size());
   for ( int i = 0; i < clusterCenters.size() ; i++ )
   {
@@ -332,7 +337,8 @@ static void updateClusterCentersRadiuses(ClusterDescriptorVector& clusterCenters
     {
       Point3d newCentre;
       e.center = newCentre;
-
+      oldRadius[i] = e.radius;
+      e.radius = 0.0;
     }
    
     clusterSizes[i++] = 0;
@@ -354,11 +360,23 @@ static void updateClusterCentersRadiuses(ClusterDescriptorVector& clusterCenters
     int assignment = pointAssignments[i];
     if(assignment < 0)
      continue;
-    double currentRadius = distance2Points(clusterCenters[assignment].center, obstacles[i]); 
-    if(clusterCenters[assignment].radius < currentRadius) {
-      clusterCenters[assignment].radius = currentRadius;
+    
+//     double currentRadius = clusterCenters[assignment].radius;
+    double pointDistance = distance2Points(clusterCenters[assignment].center, obstacles[i]); 
+    if(currentRadius[assignment] < pointDistance) {
+      currentRadius[assignment] = pointDistance;
     }
   }
+  
+  for( size_t i = 0; i < clusterCenters.size(); i++ )
+  {
+    if ( clusterHasAssignment.at(i) )
+    {
+      double alpha = 0.025;
+      clusterCenters[i].radius = alpha*currentRadius[i]+ (1-alpha)*oldRadius[i];
+    }
+  }
+  
   delete clusterSizes;
 }
 
@@ -376,13 +394,14 @@ static void updateTimeStamps(ClusterDescriptorVector& clusterCenters, const ros:
       clusterCenters[i].timeStampLastCenter = clusterCenters[i].lastSeen;
       clusterCenters[i].lastSeen = timeStamp;
     }
-    else if ( (clusterCenters[i].lastSeen - clusterCenters[i].timeStampLastCenter) > ros::Duration(5))
+    else if ( (clusterCenters[i].lastSeen - clusterCenters[i].timeStampLastCenter) > ros::Duration(2))
       clusterCenters[i].radius = 0.0;
       
   }
 }
-//update the centers of empty clusters for obstacle points that were in the blind area
-static void updateEmptyCenters(ClusterDescriptorVector& clusterCenters, const ros::Time& timeStamp, std::vector<bool>& clusterHasAssignment  ) {
+
+//update the velocites based on the new assigned clusters
+static void updateState(ClusterDescriptorVector& clusterCenters, const ros::Time& timeStamp, std::vector<bool>& clusterHasAssignment  ) {
  
   for(size_t i = 0; i < clusterCenters.size(); i++){
     auto& e = clusterCenters[i];
@@ -394,9 +413,14 @@ static void updateEmptyCenters(ClusterDescriptorVector& clusterCenters, const ro
 
       if (timeDelta > 0) 
       {
-	e.velocity.x = (e.center.x - e.lastCenter.x) / timeDelta;
-	e.velocity.y = (e.center.y - e.lastCenter.y) / timeDelta;
-	e.velocity.z = (e.center.z - e.lastCenter.z) / timeDelta;
+	double new_vel_x = (e.center.x - e.lastCenter.x) / timeDelta;
+	double new_vel_y = (e.center.y - e.lastCenter.y) / timeDelta;
+	double new_vel_z = (e.center.z - e.lastCenter.z) / timeDelta;
+	
+	double alpha = 0.1;
+	e.velocity.x = alpha * new_vel_x + (1-alpha) * e.velocity.x;
+	e.velocity.y = alpha * new_vel_y + (1-alpha) * e.velocity.y;
+	e.velocity.z = alpha * new_vel_z + (1-alpha) * e.velocity.z;
 	
 	if (e.id == 3255)
 	  ROS_WARN_STREAM("time delta: " << timeDelta );
@@ -407,24 +431,41 @@ static void updateEmptyCenters(ClusterDescriptorVector& clusterCenters, const ro
       }
 	if (e.id == 3255)
 	  ROS_WARN_STREAM("lastSeen " << e.lastSeen << " " << e.timeStampLastCenter << " " << (e.lastSeen - e.timeStampLastCenter) );
+
     }
     else 
     {
-      
-       double timeDelta = (timeStamp - e.lastSeen).toSec();
-       e.center.x = e.center.x + e.velocity.x * timeDelta;
-       e.center.y = e.center.y + e.velocity.y * timeDelta;
-       e.center.z = e.center.z + e.velocity.z * timeDelta;
-       e.lastSeen = timeStamp;
-       
-       if ( (clusterCenters[i].lastSeen - clusterCenters[i].timeStampLastCenter) < ros::Duration(2))
-	e.radius*=1.1;
-       
-       if (e.id == 3255)
-	ROS_INFO_STREAM("center " << e.center.x << " " << e.center.y << " " << e.center.z << " velocity " << e.velocity.x << " " << e.velocity.y << " " << e.velocity.z << " " );
-       
-       
+      if ( (clusterCenters[i].lastSeen - clusterCenters[i].timeStampLastCenter) < ros::Duration(1))
+      {
+	e.radius*=1.25;
+      }
     }
+  }
+}
+
+
+//update the centers based on velocity estimate from previous scan
+static void updateCentersBasedOnVelocity(ClusterDescriptorVector& clusterCenters, const ros::Time& timeStamp ) {
+ 
+  for(size_t i = 0; i < clusterCenters.size(); i++){
+    auto& e = clusterCenters[i];
+    
+    double timeDelta = (timeStamp - e.lastSeen).toSec();
+    if (timeDelta > 0) 
+    {
+      e.center.x = e.center.x + e.velocity.x * timeDelta;
+      e.center.y = e.center.y + e.velocity.y * timeDelta;
+      e.center.z = e.center.z + e.velocity.z * timeDelta;
+//       e.lastSeen = timeStamp;
+    }
+    
+  
+    if (e.id == 3255)
+      ROS_INFO_STREAM("center " << e.center.x << " " << e.center.y << " " << e.center.z << " velocity " << e.velocity.x << " " << e.velocity.y << " " << e.velocity.z << " " );
+
+    
+       
+    
        
     
   }

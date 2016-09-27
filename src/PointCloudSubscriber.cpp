@@ -1,5 +1,7 @@
 // %Tag(FULLTEXT)%
 #include "ros/ros.h"
+#include <ros/package.h>
+
 #include "std_msgs/String.h"
 #include "std_msgs/Float32.h"
 
@@ -43,8 +45,12 @@ int ClusterDescriptor::last_id = 0;
 
 
 void initParams(std::map<std::string, double > &paramsMap) {
-   std::string line;
-  std::ifstream paramsFile ("/home/lbriq/catkin_ws/src/cognitive_robotics/params.txt");
+  ros::NodeHandle nh;
+  
+  std::string path = ros::package::getPath("cognitive_robotics") + "/params.txt";
+  
+  std::string line;
+  std::ifstream paramsFile (path); 
   if (paramsFile.is_open()){
     while ( getline (paramsFile,line) ){
       std::istringstream is_line(line);
@@ -59,7 +65,13 @@ void initParams(std::map<std::string, double > &paramsMap) {
   }
   paramsFile.close();
  }
+ else
+ {
+   ROS_ERROR_STREAM("could not open file" << path);
+   exit(-1);
+ }
 }
+
 void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, std::vector<velodyne_pointcloud::PointXYZIR>& currentObstaclesList, std::map<uint16_t, double> &medianFactorByRing, pcl::PointCloud<velodyne_pointcloud::PointXYZIR> &modifiedCloud, std::map<uint16_t, std::vector<double > > &distanceByPrevious) {
   int order = 0;
       // a map between a ring and the last point seen so far
@@ -153,7 +165,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
     }
     //std::cout<< "******beginning clustering size: "<< currentClustering.size();
     int minIndexi, minIndexj;
-    //std::cout << "reached here!!!!!!!!!" <<std::endl;
+//     std::cout << "reached here!!!!!!!!!" <<std::endl;
     for(int i = 0; i < initClusterSize; ++i) {
         minDistanceValues[i] =  std::numeric_limits<double>::infinity();
     }
@@ -178,6 +190,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
                 }
             }
         }
+         
         //find the minimum distance, but also make sure that it's not larger than the inernal distance of the clusters that we want to merge by a big margin, otherwise, look for the next min distance
       bool distanceExceeded = false;
       do {
@@ -217,6 +230,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
 	 else {
 	  distanceExceeded = false;  
 	 }
+
       }while(distanceExceeded);
         
 	//update the affected distances as a result of merging
@@ -241,7 +255,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
                 minDistanceIndices[i] = minIndexi;
             }
         }
-   
+      
         minDistanceValues[minIndexj] = std::numeric_limits<double>::infinity();
         clusterDistances[minIndexj][minIndexi] = std::numeric_limits<double>::infinity();
         clusterDistances[minIndexi][minIndexj] = std::numeric_limits<double>::infinity();
@@ -255,7 +269,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
         mergedCluster.insert(mergedCluster.end(), currentClustering[minIndexi].begin(), currentClustering[minIndexi].end());
         mergedCluster.insert(mergedCluster.end(), currentClustering[minIndexj].begin(), currentClustering[minIndexj].end());
 	  
-        //std::cout << "coutmergedCluster size:" << mergedCluster.size() <<  std::endl;
+//         std::cout << "coutmergedCluster size:" << mergedCluster.size() <<  std::endl;
         currentClustering[minIndexi].swap(mergedCluster);
         currentClustering[minIndexj].erase(currentClustering[minIndexj].begin(),  currentClustering[minIndexj].end());
 
@@ -270,7 +284,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
     ROS_INFO_STREAM("-----final cluster size: " << numClusters << ", init size: " << initClusterSize);
     // compute the cluster radiuses
      
-    //std::cout << "after merge: " << currentClustering.size() <<std::endl;
+//     std::cout << "after merge: " << currentClustering.size() <<std::endl;
     for(int i = 0; i < initClusterSize; ++i) {
         delete [] clusterDistances[i];
     }
@@ -281,7 +295,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
     delete[] clusterInternalDistance;
     delete [] variances;
     // assign id to clusters
-    //std::cout<< "total num points: (" << initClusterSize <<"), ";
+//     std::cout<< "total num points: (" << initClusterSize <<"), ";
     
     cleanClusters(currentClustering, centers);
      
@@ -304,6 +318,8 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
     
    std::vector<bool> clusterHasAssignment;
    
+   updateCentersBasedOnVelocity(centers, timeStamp );
+
    updateLastCenters(centers);
    
     bool changeOccured = false; // indicates if a change in assignment occured
@@ -352,7 +368,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
       unassingedObstacles.push_back(obstacles[i]);
     }
   }
-  if(unassingedObstacles.size()> 0) {
+  if(false && unassingedObstacles.size()> 0) {
     ClusterDescriptorVector newClustersCenters;
    ROS_INFO_STREAM("****---Creating clusters for emerging obstacles");
    clusterObstacles(unassingedObstacles, newClustering, newClustersCenters);
@@ -362,7 +378,7 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
   }
 
   updateTimeStamps(centers, timeStamp, clusterHasAssignment );
-  updateEmptyCenters(centers, timeStamp, clusterHasAssignment );
+  updateState(centers, timeStamp, clusterHasAssignment );
 
   
 //   cleanClusters(clustering, centers);
@@ -402,7 +418,6 @@ void interRingSubscriberCallback(const pcl::PointCloud<velodyne_pointcloud::Poin
         }
     }
     detectObstacles(cloud, currentObstaclesList, g_medianFactorByRing, modifiedCloud, distanceByPrevious);
-    
     std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > clustering;
     if(scan_nr ==0) {
       // for the initial cluster we use heirarichal clustering, this gives an idea about what the number of cluster k should be
