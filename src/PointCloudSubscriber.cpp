@@ -368,20 +368,23 @@ void detectObstacles( pcl::PointCloud<velodyne_pointcloud::PointXYZIR>& cloud, s
       unassingedObstacles.push_back(obstacles[i]);
     }
   }
-  if(false && unassingedObstacles.size()> 0) {
+  if( unassingedObstacles.size()> 0) {
     ClusterDescriptorVector newClustersCenters;
    ROS_INFO_STREAM("****---Creating clusters for emerging obstacles");
    clusterObstacles(unassingedObstacles, newClustering, newClustersCenters);
    ROS_INFO_STREAM("****--Done creating clusters for emerging obstacles");
-   clustering.insert(clustering.end(), newClustering.begin(), newClustering.end());
-   centers.insert(centers.end(), newClustersCenters.begin(),newClustersCenters.end());
+//    clustering.insert(clustering.end(), newClustering.begin(), newClustering.end());
+//    centers.insert(centers.end(), newClustersCenters.begin(),newClustersCenters.end());
+//    std::vector<bool> newClusterHasAssignments;
+//    newClusterHasAssignments.resize(newClustersCenters.size());
+//    clusterHasAssignment.insert(clusterHasAssignment.begin(), newClusterHasAssignments.begin(), newClusterHasAssignments.end());
   }
 
   updateTimeStamps(centers, timeStamp, clusterHasAssignment );
   updateState(centers, timeStamp, clusterHasAssignment );
 
   
-//   cleanClusters(clustering, centers);
+  cleanClusters(clustering, centers, clusterHasAssignment);
   ROS_INFO_STREAM("---number kmeans iterations " << kMeansIterNum <<", number of clusters: " << clustering.size() << ", obstacles number: " << obstacles.size());
   /*if(clustering.size() < k)
     ROS_INFO_STREAM("******************Number of clusters reduced from: " << k <<" to: " << clustering.size());*/

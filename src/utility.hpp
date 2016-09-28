@@ -252,6 +252,8 @@ static double distanceBetweenClusters(const std::vector<velodyne_pointcloud::Poi
     for(int i =0; i<n; i++) {
         for(int j =0; j<m; j++) {
             double currentDistance = pcl::euclideanDistance<velodyne_pointcloud::PointXYZIR>(clusteri[i], clusterj[j]);
+// 	    float diff_x = clusterj[i].x - clusteri[i].x, diff_y = clusterj[i].y - clusteri[i].y;
+// 	    double currentDistance = sqrt(diff_x*diff_x + diff_y*diff_y);
             if(currentDistance < minDistanceBetweenClusters) {
                 minDistanceBetweenClusters = currentDistance;
             }
@@ -305,6 +307,8 @@ static void computeClusterRadiuses(ClusterDescriptorVector& clusterCenters, cons
 	}
       }
       clusterCenters[i].radius = maxRadius;
+      clusterCenters[i].radius = std::max<double>(clusterCenters[i].radius, 0.2);
+      clusterCenters[i].radius = std::min<double>(clusterCenters[i].radius, 1.0);
    }
 }
 
@@ -374,6 +378,8 @@ static void updateClusterCentersRadiuses(ClusterDescriptorVector& clusterCenters
     {
       double alpha = 0.025;
       clusterCenters[i].radius = alpha*currentRadius[i]+ (1-alpha)*oldRadius[i];
+      clusterCenters[i].radius = std::max<double>(clusterCenters[i].radius, 0.2);
+//       clusterCenters[i].radius = std::min<double>(clusterCenters[i].radius, 1.0);
     }
   }
   
@@ -394,7 +400,7 @@ static void updateTimeStamps(ClusterDescriptorVector& clusterCenters, const ros:
       clusterCenters[i].timeStampLastCenter = clusterCenters[i].lastSeen;
       clusterCenters[i].lastSeen = timeStamp;
     }
-    else if ( (clusterCenters[i].lastSeen - clusterCenters[i].timeStampLastCenter) > ros::Duration(2))
+    else if ( (clusterCenters[i].lastSeen - clusterCenters[i].timeStampLastCenter) > ros::Duration(1))
       clusterCenters[i].radius = 0.0;
       
   }
@@ -417,20 +423,20 @@ static void updateState(ClusterDescriptorVector& clusterCenters, const ros::Time
 	double new_vel_y = (e.center.y - e.lastCenter.y) / timeDelta;
 	double new_vel_z = (e.center.z - e.lastCenter.z) / timeDelta;
 	
-	double alpha = 0.1;
+	double alpha = 0.05;
 	e.velocity.x = alpha * new_vel_x + (1-alpha) * e.velocity.x;
 	e.velocity.y = alpha * new_vel_y + (1-alpha) * e.velocity.y;
 	e.velocity.z = alpha * new_vel_z + (1-alpha) * e.velocity.z;
 	
-	if (e.id == 3255)
-	  ROS_WARN_STREAM("time delta: " << timeDelta );
-
-	if (e.id == 3255)
-	  ROS_WARN_STREAM("center " << e.center.x << " " << e.center.y << " " << e.center.z << " lastCenter " << e.lastCenter.x << " " << e.lastCenter.y << " " << e.lastCenter.z << " velocity " << e.velocity.x << " " << e.velocity.y << " " << e.velocity.z << " " );
-    
+// 	if (e.id == 3255)
+// 	  ROS_WARN_STREAM("time delta: " << timeDelta );
+// 
+// 	if (e.id == 3255)
+// 	  ROS_WARN_STREAM("center " << e.center.x << " " << e.center.y << " " << e.center.z << " lastCenter " << e.lastCenter.x << " " << e.lastCenter.y << " " << e.lastCenter.z << " velocity " << e.velocity.x << " " << e.velocity.y << " " << e.velocity.z << " " );
+//     
       }
-	if (e.id == 3255)
-	  ROS_WARN_STREAM("lastSeen " << e.lastSeen << " " << e.timeStampLastCenter << " " << (e.lastSeen - e.timeStampLastCenter) );
+// 	if (e.id == 3255)
+// 	  ROS_WARN_STREAM("lastSeen " << e.lastSeen << " " << e.timeStampLastCenter << " " << (e.lastSeen - e.timeStampLastCenter) );
 
     }
     else 
@@ -486,6 +492,21 @@ static void cleanClusters(std::vector<std::vector<velodyne_pointcloud::PointXYZI
    centers.swap(tmpCenters);
 }
 
+
+static void cleanClusters(std::vector<std::vector<velodyne_pointcloud::PointXYZIR> >& clustering, ClusterDescriptorVector& centers, std::vector<bool>& clusterHasAssignment ) {
+  std::vector<std::vector<velodyne_pointcloud::PointXYZIR> > tmpClustering;
+  ClusterDescriptorVector  tmpCenters;
+  for(int i =0; i<clustering.size(); i++) {
+    if(clusterHasAssignment[i] || ( centers[i].lastSeen - centers[i].timeStampLastCenter) < ros::Duration(1))
+    {  
+      tmpClustering.push_back(clustering[i]); 
+      tmpCenters.push_back(centers[i]); 
+    }
+   }
+   clustering.swap(tmpClustering);
+   centers.swap(tmpCenters);
+}
+
 static void publishClusterMarker(ros::Publisher publisher, const ClusterDescriptorVector clusterCenters, size_t& last_marker_count, ros::Time stamp ){
   
   for (size_t i = 0; i < last_marker_count; i++) {
@@ -515,6 +536,8 @@ static void publishClusterMarker(ros::Publisher publisher, const ClusterDescript
     marker.pose.orientation.y = 0.0;
     marker.pose.orientation.z = 0.0;
     marker.pose.orientation.w = 1.0;
+    if ( clusterCenters[i].radius >= 1.0 )
+      continue;
     marker.scale.x = clusterCenters[i].radius;
     marker.scale.y = clusterCenters[i].radius;
     marker.scale.z = clusterCenters[i].radius;

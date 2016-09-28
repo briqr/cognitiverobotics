@@ -1,5 +1,7 @@
-clusterDistanceThreshold=0.2
+clusterDistanceThreshold=1.0
 maxInternalDistance=2.0
 clusterRadiusThreshold=0.9
-initClusterSize=5000
+initClusterSize=50
 clusterRadiusThreshold=0.2
+minClusterRadius=0.1
+maxClusterRadius=0.5
